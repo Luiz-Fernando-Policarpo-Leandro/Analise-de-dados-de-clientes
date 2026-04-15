@@ -10,7 +10,6 @@ imgDir = f"{filesDir}/img"
 excelDir = f"{filesDir}/csv"
 p39Path = f"{excelDir}/p39.xlsx"
 
-# limpar pasta
 os.makedirs(imgDir, exist_ok=True)
 for filename in os.listdir(imgDir):
     file_path = os.path.join(imgDir, filename)
@@ -20,7 +19,7 @@ for filename in os.listdir(imgDir):
 def save_plot(name):
     path = f"{imgDir}/{name}.png"
     plt.savefig(path, bbox_inches='tight')
-    print(f"[✔] {name} salvo em: {path}")
+    print(f"[✔] Gráfico '{name}' salvo.")
 
 # =========================
 # LEITURA
@@ -31,182 +30,134 @@ df = df[df['id'].str.startswith('C')]
 
 if __name__ == "__main__":
 
-    print("\n=== INFO ===")
-    df.info()
-
-    # =========================
-    # MÉTRICAS E NORMALIZAÇÃO
-    # =========================
+    print("\n=== 1. VERIFICAÇÃO DE MÉTRICAS E ESCALAS ===")
     df['consumo_relativo'] = df['fatura'] / df['renda']
-
-    # Normalizando as variáveis antes de calcular o score para alinhar as escalas
+    
+    # Valores originais antes da normalização
+    print(f"Consumo Relativo (Original) -> Min: {df['consumo_relativo'].min():.4f}, Max: {df['consumo_relativo'].max():.4f}")
+    
     scaler = MinMaxScaler()
     df['consumo_norm'] = scaler.fit_transform(df[['consumo_relativo']])
     
-    # Inverso do log da renda (maior renda = menor risco = menor o inverso)
     df['inverso_log_renda'] = 1 / np.log(df['renda'])
+    print(f"Inverso Log Renda (Original) -> Min: {df['inverso_log_renda'].min():.4f}, Max: {df['inverso_log_renda'].max():.4f}")
+    
     df['renda_norm'] = scaler.fit_transform(df[['inverso_log_renda']])
 
-    # Calculando o score final com os pesos ajustados corretamente na mesma escala
-    df['score_risco'] = (
-        df['consumo_norm'] * 0.8 +
-        df['renda_norm'] * 0.2
-    ) * 100
+    # Verificação da Normalização (Deve ser sempre 0 a 1)
+    print(f"Consumo (Normalizado) -> Min: {df['consumo_norm'].min()}, Max: {df['consumo_norm'].max()}")
+    print(f"Renda (Normalizada)   -> Min: {df['renda_norm'].min()}, Max: {df['renda_norm'].max()}")
+
+    # Cálculo do Score de Risco:
+    # $$score\_risco = (consumo\_norm \times 0.8 + renda\_norm \times 0.2) \times 100$$
+    df['score_risco'] = (df['consumo_norm'] * 0.8 + df['renda_norm'] * 0.2) * 100
 
     def classificar_risco(x):
-        if x < 0.1:
-            return 'baixo'
-        elif x < 0.2:
-            return 'moderado'
-        elif x < 0.25:
-            return 'alto'
-        else:
-            return 'critico'
+        if x < 0.1: return 'baixo'
+        elif x < 0.2: return 'moderado'
+        elif x < 0.25: return 'alto'
+        else: return 'critico'
 
     df['risco'] = df['consumo_relativo'].apply(classificar_risco)
 
-    print("\n=== DISTRIBUIÇÃO DE RISCO ===")
+    print("\n=== 2. DISTRIBUIÇÃO DAS CLASSES DE RISCO ===")
     print(df['risco'].value_counts())
 
     # =========================
-    # SCATTER
+    # VISUALIZAÇÃO (SCATTER, HEATMAP, ETC)
     # =========================
+    # [Mantendo sua lógica de plots...]
     plt.figure()
-
-    cores = {
-        'baixo': 'blue',
-        'moderado': 'green',
-        'alto': 'orange',
-        'critico': 'red'
-    }
-
+    cores = {'baixo': 'blue', 'moderado': 'green', 'alto': 'orange', 'critico': 'red'}
     for risco, cor in cores.items():
         subset = df[df['risco'] == risco]
         plt.scatter(subset['renda'], subset['consumo_relativo'], label=risco, color=cor)
-
     plt.axhline(y=0.25, linestyle='--')
-
-    plt.xlabel('Renda')
-    plt.ylabel('Consumo Relativo')
-    plt.title('Renda vs Consumo')
-    plt.legend()
-
+    plt.xlabel('Renda'); plt.ylabel('Consumo Relativo'); plt.legend()
     save_plot("scatter")
     plt.close()
 
-    # =========================
-    # HEATMAP CORRIGIDO
-    # =========================
-    plt.figure()
-
-    # Convertendo colunas categóricas para numéricas para incluí-las na correlação
+    # HEATMAP COM MAPEAMENTO CATEGÓRICO
     if 'propria' in df.columns:
         df['propria_num'] = df['propria'].astype(str).str.lower().map({'sim': 1, 'nao': 0, 'não': 0})
     if 'superior' in df.columns:
         df['superior_num'] = df['superior'].astype(str).str.lower().map({'sim': 1, 'nao': 0, 'não': 0})
 
-    # Selecionando as colunas para o mapa de calor dinamicamente
-    colunas_correlacao = ['renda', 'fatura', 'idade', 'consumo_relativo']
-    if 'propria_num' in df.columns: colunas_correlacao.append('propria_num')
-    if 'superior_num' in df.columns: colunas_correlacao.append('superior_num')
+    colunas_corr = ['renda', 'fatura', 'idade', 'consumo_relativo']
+    if 'propria_num' in df.columns: colunas_corr.append('propria_num')
+    if 'superior_num' in df.columns: colunas_corr.append('superior_num')
 
-    corr = df[colunas_correlacao].corr()
+    print("\n=== 3. MATRIZ DE CORRELAÇÃO (VALORES) ===")
+    corr = df[colunas_corr].corr()
+    print(corr.round(2))
 
+    plt.figure()
     im = plt.imshow(corr, vmin=-1, vmax=1, cmap='coolwarm')
     plt.colorbar(im)
-
     plt.xticks(range(len(corr.columns)), corr.columns, rotation=45)
     plt.yticks(range(len(corr.columns)), corr.columns)
-
     for i in range(len(corr.columns)):
         for j in range(len(corr.columns)):
-            plt.text(j, i, f"{corr.iloc[i, j]:.2f}",
-                     ha='center', va='center', fontsize=9)
-
-    plt.title("Correlação (-1 a 1)")
-
+            plt.text(j, i, f"{corr.iloc[i, j]:.2f}", ha='center', va='center')
     save_plot("heatmap_corr_corrigido")
     plt.close()
 
-    # =========================
-    # BOXPLOT
-    # =========================
-    plt.figure()
-
+    # OUTROS PLOTS
     df.boxplot(column='consumo_relativo', by='risco', showfliers=False)
-
-    plt.title("Consumo por Risco")
-    plt.suptitle('')
-    plt.ylim(0, 0.3)
-
     save_plot("boxplot")
     plt.close()
 
-    # =========================
-    # HIST + KDE
-    # =========================
-    plt.figure()
-
     df['score_risco'].plot(kind='hist', bins=30, density=True)
     df['score_risco'].plot(kind='kde')
-
     plt.axvline(df['score_risco'].mean(), linestyle='--', color='red')
-
-    plt.title("Distribuição do Score")
-
     save_plot("hist_score")
     plt.close()
 
-    # =========================
-    # TOP RISCO
-    # =========================
     top_risco = df.sort_values('score_risco', ascending=False).head(10)
-
     plt.figure()
     plt.bar(top_risco['id'], top_risco['score_risco'])
     plt.xticks(rotation=45)
-
-    plt.title("Top 10 Risco")
-
     save_plot("top10")
     plt.close()
 
     # =========================
-    # TESTES ESTATÍSTICOS
+    # TESTES ESTATÍSTICOS DETALHADOS
     # =========================
-    print("\n=== TESTE SHAPIRO ===")
+    print("\n=== 4. TESTES DE NORMALIDADE (SHAPIRO-WILK) ===")
     is_normal = True
     for genero in df['sexo'].unique():
         subset = df[df['sexo'] == genero]['consumo_relativo'].dropna()
-        if len(subset) >= 3: # Shapiro requer pelo menos 3 amostras
-            _, p = shapiro(subset)
-            print(f"{genero}: p-value = {p:.4f}")
+        if len(subset) >= 3:
+            stat, p = shapiro(subset)
+            print(f"Gênero {genero}: Estatística={stat:.4f}, p-value={p:.4f}")
             if p < 0.05:
                 is_normal = False
-        else:
-            print(f"{genero}: Amostras insuficientes para Shapiro")
-            is_normal = False
+                print(f"   -> Resultado: Distribuição NÃO é normal para {genero}.")
+            else:
+                print(f"   -> Resultado: Distribuição parece normal para {genero}.")
 
     f = df[df['sexo'] == 'F']['consumo_relativo'].dropna()
     m = df[df['sexo'] == 'M']['consumo_relativo'].dropna()
 
+    print("\n=== 5. COMPARAÇÃO DE GRUPOS (MÉDIAS/MEDIANAS) ===")
     if is_normal:
-        print("\n[!] Dados normais: Aplicando T-Test de Student")
-        _, p_final = ttest_ind(f, m)
-        print(f"T-Test: p = {p_final:.4f}")
+        stat, p_final = ttest_ind(f, m)
+        print(f"Executando T-Test (Paramétrico): Estatística={stat:.4f}, p={p_final:.4f}")
     else:
-        print("\n[!] Dados não-normais: Aplicando Mann-Whitney U")
-        _, p_final = mannwhitneyu(f, m)
-        print(f"Mann-Whitney: p = {p_final:.4f}")
+        stat, p_final = mannwhitneyu(f, m)
+        print(f"Executando Mann-Whitney U (Não-Paramétrico): Estatística={stat:.4f}, p={p_final:.4f}")
+
+    if p_final < 0.05:
+        print("Conclusão: Existe diferença estatisticamente significativa entre os gêneros.")
+    else:
+        print("Conclusão: Não há diferença significativa entre os gêneros.")
 
     # =========================
     # OUTPUT FINAL
     # =========================
-    print("\n=== TOP 10 RISCO ===")
-    print(top_risco[['id', 'renda', 'consumo_relativo', 'score_risco']])
+    print("\n=== 6. TOP 10 CLIENTES EM RISCO ===")
+    print(top_risco[['id', 'renda', 'consumo_relativo', 'score_risco']].to_string(index=False))
 
-    # Limpando as colunas auxiliares antes de salvar o dataset final
-    df.drop(columns=['consumo_norm', 'inverso_log_renda', 'renda_norm'], inplace=True, errors='ignore')
-
+    df.drop(columns=['consumo_norm', 'inverso_log_renda', 'renda_norm', 'propria_num', 'superior_num'], inplace=True, errors='ignore')
     df.to_csv(f"{imgDir}/dataset_analisado.csv", index=False)
-    print(f"\n[✔] Dataset salvo em: {imgDir}/dataset_analisado.csv")
+    print(f"\n[✔] Processo finalizado. CSV salvo em: {imgDir}/dataset_analisado.csv")
